@@ -37,8 +37,6 @@ class Person(Agent):
       if np.max(np.absolute(self.inherent_movement_desire_vector())) > 5:
         raise ConfigError("No move vector value may be greater than 5 in magnititude")
 
-
-
   # The cells the agent can see, returned as a list of coord tuples.
   def percept(self):
       self.neighborhood = self.model.grid.get_neighborhood(self.pos,
@@ -131,9 +129,13 @@ class Person(Agent):
 
   def plan(self):
     self.plan_move()
-    self.planned_state()
+    self.plan_state()
 
   def step(self):
+    # Planning is done so that the move and state are decided
+    # on current information before updates occur so that the update of one
+    # doesn't affect the calculation of the other.
+    self.plan()
     self.state = self.planned_state
     self.model.grid[self.position[0]][self.position[1]] = None
     self.position = self.planned_position
@@ -146,7 +148,8 @@ class Citizen(Person):
   def __init__(self, unique_id, model, position, vision_radius,
     violent_affinity, active_affinity, quiet_affinity, cop_affinity,
     media_affinity, flag_affinity, obstacle_affinity,
-    citizen_type, state, hardship, perceived_legitimacy):
+    citizen_type, state, hardship, perceived_legitimacy, risk_tolerance,
+    arrest_delay, threshold):
 
     super().__init__(unique_id, model, position, vision_radius,
     violent_affinity, active_affinity, quiet_affinity, cop_affinity,
@@ -163,6 +166,15 @@ class Citizen(Person):
 
     self.hardship = hardship
     self.perceived_legitimacy = perceived_legitimacy
+    self.risk_tolerance = risk_tolerance
+
+    self.arrest_delay = arrest_delay
+    self.arrested = False
+    self.arrested_count = 0
+    self.jail_time = 0
+
+    # Expected utility of not acting.
+    self.threshold = threshold
 
   def update_legitimacy(self)
     num_jailed = self.model.jailed_count
@@ -186,6 +198,110 @@ class Citizen(Person):
     # if num jailed, pictures of violence, or cops go down, legitimacy may increase.
     self.perceived_legitimacy = self.perceived_legitimacy - legitimacy_modifier
 
+  def perceived_risk(self):
+    visible_objects = self.model.grid.get_cell_list_contents(self.percept())
+    
+    visible_cops = len(filter(lambda object: type(object) == Cop, visible_objects))
+    visible_active_agents = len(filter(lambda object: (type(object) == Citizen) and
+      (object.state in ["active", "violent"]), visible_objects))
+
+    if self.state in ["active", "violent"]:
+     visible_active_agents += 1
+
+    arrest_constant = self.model.arrest_constant
+
+    return (1 - (1.0/math.exp(arrest_constant*(float(visible_cops)/visible_active_agents))))
+
+  def jail_time_for_arrest(self):
+    return self.model.jail_time * max(1, self.arrested_count)
+
+  def net_risk(self, state):
+    if state == "active":
+      return self.perceived_risk() * (1-self.risk_tolerance)
+    elif state == "violent":
+      return self.perceived_risk() * (1-self.risk_tolerance) * self.jail_time_for_arrest()
+    else:
+      return 0
+
+  # Override some generic agent methods:
+  def plan_state(self):
+    perceived_gain = self.hardship * (1 - self.perceived_legitimacy)
+    should_go_active = perceived_gain - self.net_risk("active") > self.threshold
+    should_go_violent = perceived_gain - self.net_risk("violent") > self.threshold
+    
+    if not self.state == "fighting":
+      if should_go_violent:
+        self.state = "violent"
+      elif should_go_active:
+        self.state = "active"
+      else:
+        self.state = "quiet"
+    else:
+      self.arrest_delay = self.arrest_delay - 1
+
+  # Way people react to context is dependant on who they are
+  # not their current state
+  # But the features observed are "visible elements" of people
+  # ie, state, not type.
+  def adjusted_movement_desire_vector(self):
+    # vector order:
+    # [violent, active, quiet, cop, media, flag, obstacle]
+
+    inherent_move_vector = self.inherent_movement_desire_vector()
+
+    if self.type == "hardcore":
+      
+      flag_visible = len(filter(lambda object: (type(object) == Object) and (object.object_type == "flag"),
+        self.model.grid.get_cell_list_contents(self.percept()))) > 0
+      
+      visible_cops = len(filter(lambda object: type(object) == Cop, visible_objects))
+      visible_active_agents = len(filter(lambda object: (type(object) == Citizen) and
+        (object.state in ["active", "violent"]), visible_objects))
+
+      # If flag visible, and cops outnumbered, desire is to
+      # cluster with other violent agents and advance on flag
+      # The notion of outnumbered comes from the 2:1 arrest ratio for cops to arrest
+      if flag_visible and visible_active_agents > (0.5 * visible_cops):
+        inherent_move_vector[0] += 2 #violent
+        inherent_move_vector[1] -= 2 #active
+
+      # If no flag, but agents in advantage, pursue cops
+      elif visible_active_agents > (0.5 * visible_cops):
+        inherent_move_vector[3] += 2 #violent
+
+      # If agents are outnumbered, avoid cops
+      elif visible_active_agents < (0.5 * visible_cops):
+        inherent_move_vector[3] -= 4 #cops
+
+    elif self.type == "hanger_on":
+      # If violent, assume the personality of a hardcore agent,
+      # without additional context modifications
+      if self.state == "violent":
+        inherent_move_vector = self.model.default_hardcore_move_vector
+
+      # if active, approach other actives
+      elif self.state == "active":
+        inherent_move_vector[1] += 2 #actives
+
+      # If quiet, avoid violent agents
+      elif self.state == "quiet":
+        inherent_move_vector[0] -= 2 #violent
+
+    elif self.type == "observer":
+      # If violent, assume the personality of a hardcore agent,
+      # without additional context modifications
+      if self.state == "violent":
+        inherent_move_vector = self.model.default_hardcore_move_vector
+
+      elif self.state == "active":
+        inherent_move_vector[1] += 2 #actives
+
+      # If quiet, strongly avoid violent and active agents
+      elif self.state == "quiet":
+        inherent_move_vector[0] -= 3 #violent
+        inherent_move_vector[1] -= 2 #active
+
+    return inherent_move_vector
 
 
 

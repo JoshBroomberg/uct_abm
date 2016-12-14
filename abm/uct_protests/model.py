@@ -32,6 +32,12 @@ class ProtestModel(Model):
     self.vision_radius = vision_radius
     self.agent_move_falibility = agent_move_falibility
 
+    # vector order:
+    # [violent, active, quiet, cop, media, flag, obstacle]
+    self.default_hardcore_move_vector = [4, 2, 0, 4, 3, 5, -1]
+    self.default_hanger_on_move_vector = [1, 1, 0, 1, 3, 1, -1]
+    self.default_observer_move_vector = [-1, -1, 0, -1, 3, 0, -1]
+
     # Citizen legitimacy update factors
     self.citizen_jailed_sensitivity = citizen_jailed_sensitivity
     self.citizen_pictures_sensitivity = citizen_pictures_sensitivity
@@ -53,6 +59,12 @@ class ProtestModel(Model):
     self.jailed_count = 0
     self.pictures_count = 0
     self.cops_count = initial_num_cops
+
+    # Set such that when cops/agents are 2:1, the perceived arrest chance is 0.9
+    self.arrest_constant = 1.15
+
+    # Represents "harshness" of current regime.
+    self.jail_time = 10
 
     if not (hardcore_density + hanger_on_density + observer_density == 1):
       raise ConfigError("Protestor densities must add up to 1")
