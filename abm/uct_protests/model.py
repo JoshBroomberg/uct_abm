@@ -37,8 +37,8 @@ class ProtestModel(Model):
     # [violent, active, quiet, cop, media, flag, obstacle]
     self.default_hardcore_move_vector = [1, 0, 0, 5, 2, 5, -1]
     self.default_hanger_on_move_vector = [1, 1, 0, 3, 3, 3, -1]
-    self.default_observer_move_vector = [-1, -1, 0, -1, 3, 0, -1]
-    self.default_cop_move_vector = [2, 1, 0, 5, 0, 5, 0]
+    self.default_observer_move_vector = [-3, -3, 0, -1, 0, 0, -1]
+    self.default_cop_move_vector = [0, 0, 0, 5, 0, 5, 0]
     self.default_media_move_vector = [3, 1, -1, 3, 2, 2, -1]
 
     # Citizen legitimacy update factors
@@ -86,7 +86,7 @@ class ProtestModel(Model):
     unique_id = 1
     
     for position in cop_positions:
-      self.add_cop(unique_id, True, position[0], position[1])
+      self.add_cop(unique_id, False, position[0], position[1])
       unique_id += 1
       placed_cops += 1
 
@@ -94,8 +94,8 @@ class ProtestModel(Model):
     placed_citizens = 0
     population = initial_num_cops + initial_num_media + initial_num_citizens
     while (placed_cops + placed_media + placed_citizens) < population:
-      for y in range(3, 20):
-        for x in range(0, 20):
+      for y in range(2, height-1):
+        for x in range(0, width-1):
           if self.grid.is_cell_empty((x, y)):
             seed = random.random()
             

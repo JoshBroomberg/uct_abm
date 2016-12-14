@@ -118,7 +118,7 @@ class Person(Agent):
     return np.sum(penalty_vector)
 
   def plan_move(self):
-    viable_moves = list(filter(lambda co_ord: self.model.grid.is_cell_empty(co_ord), self.percept()))
+    viable_moves = list(filter(lambda co_ord: self.model.grid.is_cell_empty(co_ord), self.percept(radius=1)))
 
     if len(viable_moves) == 0:
       self.planned_position = self.position
