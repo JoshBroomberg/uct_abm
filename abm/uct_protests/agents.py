@@ -303,6 +303,11 @@ class Citizen(Person):
 
     return inherent_move_vector
 
+  def plan_move(self):
+    # Don't move if fighting
+    if not self.state() == "fighting":
+      super(Citizen, self).plan_move()
+
 
 
 
