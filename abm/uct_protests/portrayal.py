@@ -2,10 +2,10 @@ from .agents import Citizen, Cop, Media
 from .objects import Object
 
 COP_COLOR = "#1A1AFF" #blue
-FIGHT_COLOR = "#FFFFFF" #white
+FIGHT_COLOR = "#FF0000" #yellow
 AGENT_QUIET_COLOR = "#33FF33" #green
-AGENT_ACTIVE_COLOR = "#FF8000" #orange
-AGENT_VIOLENT_COLOR = "#FF0000" #red
+AGENT_ACTIVE_COLOR = "#EEEE39" #orange
+AGENT_VIOLENT_COLOR = "#FF8000" #red
 OBSTACLE_COLOR = "#000000" #black
 FLAG_COLOR = "#B8B894" #grey
 MEDIA_COLOR = "#FF1AFF" #pink
@@ -18,7 +18,7 @@ def element_portrayal(agent):
     "x": agent.position[0], "y": agent.position[1],
     "Filled": "true",
     "Layer": 0,
-    "r": 0.8,
+    "r": 0.6,
     "Shape": "circle"
     }
 
@@ -36,12 +36,15 @@ def element_portrayal(agent):
       color = AGENT_VIOLENT_COLOR
     elif agent.state == "fighting":
       color = FIGHT_COLOR
+      portrayal["Color"] = 0.9
     
     portrayal["Color"] = color
 
   elif isinstance(agent, Cop):
-    portrayal["Color"] = FIGHT_COLOR if agent.engaged_in_fight else COP_COLOR
-
+    portrayal["Color"] = COP_COLOR
+    portrayal["Shape"] = "rect"
+    portrayal["w"] = 0.9
+    portrayal["h"] = 0.9
   elif isinstance(agent, Media):
     portrayal["Color"] = MEDIA_COLOR
   

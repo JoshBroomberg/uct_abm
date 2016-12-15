@@ -8,21 +8,22 @@ from mesa.datacollection import DataCollector
 from .agents import Citizen, Media, Cop
 from .objects import Object
 
-from utils import ConfigError
+from utils import ConfigError, co_ords_for_area
 
 class ProtestModel(Model):
 
-  def __init__(self, initial_num_cops, initial_num_citizens, initial_num_media, hardcore_density, hanger_on_density, observer_density,
+  def __init__(self, initial_num_citizens, initial_num_media, hardcore_density, hanger_on_density, observer_density,
     vision_radius, agent_move_falibility,
     default_hardcore_move_vector, default_hanger_on_move_vector, default_observer_move_vector, default_cop_move_vector, default_media_move_vector,
     citizen_jailed_sensitivity, citizen_pictures_sensitivity, citizen_cops_sensitivity,
-    max_days, height, width, agent_region, obstacle_positions, flag_positions, cop_positions, arrest_delay, jail_time):
+    max_days, height, width,
+    agent_regions, obstacle_regions, flag_regions, cop_regions,
+    arrest_delay, jail_time):
 
     super().__init__()
     
-    print("model init")
     # Population initialisation
-    self.initial_num_cops = initial_num_cops
+    self.initial_num_cops = len(co_ords_for_area(cop_regions))
     self.initial_num_citizens = initial_num_citizens
     self.initial_num_media = initial_num_media
     self.hardcore_density = hardcore_density
@@ -60,10 +61,10 @@ class ProtestModel(Model):
 
     self.previous_day_jailed_count = 0
     self.previous_day_pictures_count = 0
-    self.previous_day_cops_count = initial_num_cops
+    self.previous_day_cops_count = self.initial_num_cops
     self.jailed_count = 0
     self.pictures_count = 0
-    self.cops_count = initial_num_cops
+    self.cops_count = self.initial_num_cops
 
     # Set such that when cops/agents are 2:1, the perceived arrest chance is 0.9
     self.arrest_delay = arrest_delay
@@ -74,8 +75,13 @@ class ProtestModel(Model):
     if not (hardcore_density + hanger_on_density + observer_density == 1):
       raise ConfigError("Protestor densities must add up to 1")
 
-    if initial_num_cops + initial_num_citizens + initial_num_media > (height * width):
+    if self.initial_num_cops + initial_num_citizens + initial_num_media > (height * width):
       raise ConfigError("Too many humans for the given grid")
+
+    self.total_fights = 0
+    self.total_jailed = 0
+    self.hours_without_protest = 0
+    self.hours_without_conflict = 0
 
     self.datacollector = DataCollector(
       model_reporters={
@@ -83,51 +89,68 @@ class ProtestModel(Model):
         "Active": lambda model: model.num_in_state("active"),
         "Violent": lambda model: model.num_in_state("violent"),
         "Fighting": lambda model: model.num_in_state("fighting"),
+        "Protesting": lambda model: model.num_protesting(),
         "Jailed": lambda model: model.num_jailed(),
+        "Frustrated": lambda model: model.num_frustrated(),
         "Average legitimacy": lambda model: model.average_legitimacy(),
         "Cop count": lambda model: model.num_cops(),
-      }
+        "Num pictures": lambda model: model.num_pictures(),
+        "Total fights": lambda model: model.total_fights,
+        "Total jailed": lambda model: model.total_jailed,
+        "Protest waiting time": lambda model: model.hours_without_protest,
+        "Conflict waiting time": lambda model: model.hours_without_conflict,
+      },
+      agent_reporters={
+        "perceived_gain": lambda agent: agent.perceived_gain() if isinstance(agent, Citizen) else 0,
+        "net_risk_active": lambda agent: agent.net_risk("active") if isinstance(agent, Citizen) else 0,
+        "net_risk_violent": lambda agent: agent.perceived_gain() - agent.net_risk("violent") if isinstance(agent, Citizen) else 0,
+        "act_utils": lambda agent: agent.net_risk("violent") if isinstance(agent, Citizen) else 0,
+        "threshold": lambda agent: agent.threshold if isinstance(agent, Citizen) else 0,
+      } 
     )
 
+    self.agent_regions = agent_regions
+    self.cop_regions = cop_regions
+    self.flag_regions = flag_regions
+    self.obstacle_regions = obstacle_regions
+
     # Place objects
-    for position in obstacle_positions:
+    for position in co_ords_for_area(obstacle_regions):
       self.grid[position[0]][position[1]] = Object("obstacle", position)
 
-    for position in flag_positions:
+    for position in co_ords_for_area(flag_regions):
       self.grid[position[0]][position[1]] = Object("flag", position)
 
-    placed_cops = 0
     unique_id = 1
     
-    for position in cop_positions:
-      self.add_cop(unique_id, False, position[0], position[1])
-      unique_id += 1
-      placed_cops += 1
+    for cop_region in cop_regions:
+      frozen = cop_region["frozen"]
+
+      for position in co_ords_for_area([cop_region]):
+        self.add_cop(unique_id, frozen, position[0], position[1])
+        unique_id += 1
 
     placed_media = 0
     placed_citizens = 0
-    population = initial_num_cops + initial_num_media + initial_num_citizens
-    while (placed_cops + placed_media + placed_citizens) < population:
-      for y in range(agent_region["y_0"], agent_region["y_1"]):
-        for x in range(agent_region["x_0"], agent_region["x_1"]):
-          if self.grid.is_cell_empty((x, y)):
-            seed = random.random()
-            
-            # Optimised for adding citizens
-            if seed > (float(initial_num_cops)/population) + (float(initial_num_media)/population):
-              if placed_citizens < initial_num_citizens:
-                self.add_citizen(unique_id, x, y)
-                placed_citizens += 1
-            elif seed > (float(initial_num_cops)/population):
-              if placed_media < initial_num_media:
-                placed_media += 1
-                self.add_media(unique_id, x, y)
-            else:
-              if placed_cops < initial_num_cops:
-                self.add_cop(unique_id, False, x, y)
-                placed_cops += 1 
+    population = initial_num_media + initial_num_citizens
+    while (placed_media + placed_citizens) < population:
+      (x, y) = random.choice(co_ords_for_area(agent_regions))
+      
+      if self.grid.is_cell_empty((x, y)):
+        seed = random.random()
 
-            unique_id += 1 
+        # Optimised for adding citizens
+        if seed > (float(initial_num_media)/population):
+          if placed_citizens < initial_num_citizens:
+            self.add_citizen(unique_id, x, y)
+            placed_citizens += 1
+
+        else:
+          if placed_media < initial_num_media:
+            placed_media += 1
+            self.add_media(unique_id, x, y)
+
+        unique_id += 1 
 
   def add_cop(self, id, frozen, x, y):
     vector = self.default_cop_move_vector
@@ -152,13 +175,13 @@ class ProtestModel(Model):
     if seed < self.hardcore_density:
       agent_type = "hardcore"
       vector = self.default_hardcore_move_vector
-      risk_lower = 0.66
-      risk_upper = 1
+      risk_lower = 0.8
+      risk_upper = 0.95
     elif seed < self.hardcore_density + self.hanger_on_density:
       agent_type = "hanger_on"
       vector = self.default_hanger_on_move_vector
-      risk_lower = 0.33
-      risk_upper = 0.65
+      risk_lower = 0.4
+      risk_upper = 0.6
     else:
       agent_type = "observer"
       vector = self.default_observer_move_vector
@@ -179,8 +202,8 @@ class ProtestModel(Model):
       vector[6],#obstacle_affinity,
       agent_type,#citizen_type,
       "quiet", #state: starts are quiet for all
-      random.random(),#hardship: uniform distribution between 0 and 1, type independant.
-      random.random(),#perceived_legitimacy: uniform distribution between 0 and 1, type independant.
+      random.uniform(0, 0.2),#hardship: uniform distribution between 0 and 1, type independant.
+      random.uniform(0.7, 0.9),#perceived_legitimacy: uniform distribution between 0 and 1, type independant.
       random.uniform(risk_lower, risk_upper), #risk_tolerance: type dependant
       1 - random.uniform(risk_lower, risk_upper)#threshold: type dependant, but reversed from risk profile
     )
@@ -210,8 +233,19 @@ class ProtestModel(Model):
   def num_jailed(self):
     return len(list(filter(lambda agent: ((type(agent) == Citizen) and (agent.arrested)),  self.schedule.agents)))
 
+  def agents_in_state(self, state):
+    return list(filter(lambda agent: ((type(agent) == Citizen) and (agent.state == state)),  self.schedule.agents))
+
   def num_in_state(self, state):
-    return len(list(filter(lambda agent: ((type(agent) == Citizen) and (agent.state == state)),  self.schedule.agents)))
+    return len(self.agents_in_state(state))
+
+  def num_protesting(self):
+    return self.num_in_state("fighting") + self.num_in_state("violent") + self.num_in_state("active")
+
+  def num_frustrated(self):
+    return len(list(filter(lambda agent: ((type(agent) == Citizen) and 
+      (agent.perceived_gain() > agent.threshold) and 
+      (agent.state not in ["violent", "active", "fighting"])),  self.schedule.agents)))
 
   def average_legitimacy(self):
     citizen_legitimacy = list(map(lambda a: a.perceived_legitimacy, (list(filter(lambda agent: (type(agent) == Citizen),  self.schedule.agents)))))
@@ -227,14 +261,18 @@ class ProtestModel(Model):
     return len(list(filter(lambda agent: (type(agent) == Cop),  self.schedule.agents)))
 
   def free_agent_from_jail(self, agent):
-    for (cell_contents, x, y) in self.grid.coord_iter():
-      if self.grid.is_cell_empty((x, y)):
-        self.grid[x][y] = agent
-        self.jail.remove(agent)
+    placed = False
+    while not placed:
+      position = random.choice(co_ords_for_area(self.agent_regions))
+      if self.grid.is_cell_empty(position):
+        self.grid[position[0]][position[1]] = agent
+        return position
 
   def jail_agent(self, agent):
-    self.jail.append(agent)
     self.grid[agent.position[0]][agent.position[1]] = None
+    agent.position = None
+    agent.planned_position = None
+    self.total_jailed += 1
 
   def daily_update(self):
     self.previous_day_jailed_count = self.jailed_count
@@ -255,11 +293,32 @@ class ProtestModel(Model):
     for media in media_agents:
       media.picture_count = 0
 
+  def experimental_changes(self):
+    if self.iterations == 2:
+      citizen_agents = list(filter(lambda agent: (type(agent) == Citizen),  self.schedule.agents))
+    
+      for citizen in citizen_agents:
+          citizen.hardship += 0.3
+          citizen.perceived_legitimacy -= 0.5
+
   def step(self):
+    if self.num_protesting() > (0.25 * self.initial_num_citizens):
+      self.hours_without_protest = 0
+    else:
+      self.hours_without_protest +=1
+    
+    if self.num_in_state("fighting") + self.num_in_state("violent") > (0.15 * self.initial_num_citizens):
+      self.hours_without_conflict = 0
+    else:
+      self.hours_without_conflict +=1
+
     self.datacollector.collect(self)
     self.schedule.step()
     self.iterations += 1
     if self.iterations > self.max_iters:
         self.running = False
-    if self.iterations%24 == 0:
+    if self.iterations % 24 == 0:
       self.daily_update()
+
+    self.experimental_changes()
+
