@@ -3,6 +3,7 @@ import random
 from mesa import Model
 from mesa.time import RandomActivation
 from mesa.space import Grid
+from mesa.datacollection import DataCollector
 
 from .agents import Citizen, Media, Cop
 from .objects import Object
@@ -13,8 +14,9 @@ class ProtestModel(Model):
 
   def __init__(self, initial_num_cops, initial_num_citizens, initial_num_media, hardcore_density, hanger_on_density, observer_density,
     vision_radius, agent_move_falibility,
+    default_hardcore_move_vector, default_hanger_on_move_vector, default_observer_move_vector, default_cop_move_vector, default_media_move_vector,
     citizen_jailed_sensitivity, citizen_pictures_sensitivity, citizen_cops_sensitivity,
-    max_days, height, width, obstacle_positions, flag_positions, cop_positions, arrest_delay, jail_time):
+    max_days, height, width, agent_region, obstacle_positions, flag_positions, cop_positions, arrest_delay, jail_time):
 
     super().__init__()
     
@@ -35,11 +37,11 @@ class ProtestModel(Model):
 
     # vector order:
     # [violent, active, quiet, cop, media, flag, obstacle]
-    self.default_hardcore_move_vector = [1, 0, 0, 5, 2, 5, -1]
-    self.default_hanger_on_move_vector = [1, 1, 0, 3, 3, 3, -1]
-    self.default_observer_move_vector = [-3, -3, 0, -1, 0, 0, -1]
-    self.default_cop_move_vector = [0, 0, 0, 5, 0, 5, 0]
-    self.default_media_move_vector = [3, 1, -1, 3, 2, 2, -1]
+    self.default_hardcore_move_vector = default_hardcore_move_vector
+    self.default_hanger_on_move_vector = default_hanger_on_move_vector
+    self.default_observer_move_vector = default_observer_move_vector
+    self.default_cop_move_vector = default_cop_move_vector
+    self.default_media_move_vector = default_media_move_vector
 
     # Citizen legitimacy update factors
     self.citizen_jailed_sensitivity = citizen_jailed_sensitivity
@@ -54,7 +56,7 @@ class ProtestModel(Model):
     self.grid = Grid(width, height, torus=False)
     self.height = height
     self.width = width
-    self.running = False
+    self.running = True
 
     self.previous_day_jailed_count = 0
     self.previous_day_pictures_count = 0
@@ -75,6 +77,18 @@ class ProtestModel(Model):
     if initial_num_cops + initial_num_citizens + initial_num_media > (height * width):
       raise ConfigError("Too many humans for the given grid")
 
+    self.datacollector = DataCollector(
+      model_reporters={
+        "Quiet": lambda model: model.num_in_state("quiet"),
+        "Active": lambda model: model.num_in_state("active"),
+        "Violent": lambda model: model.num_in_state("violent"),
+        "Fighting": lambda model: model.num_in_state("fighting"),
+        "Jailed": lambda model: model.num_jailed(),
+        "Average legitimacy": lambda model: model.average_legitimacy(),
+        "Cop count": lambda model: model.num_cops(),
+      }
+    )
+
     # Place objects
     for position in obstacle_positions:
       self.grid[position[0]][position[1]] = Object("obstacle", position)
@@ -94,8 +108,8 @@ class ProtestModel(Model):
     placed_citizens = 0
     population = initial_num_cops + initial_num_media + initial_num_citizens
     while (placed_cops + placed_media + placed_citizens) < population:
-      for y in range(2, height-1):
-        for x in range(0, width-1):
+      for y in range(agent_region["y_0"], agent_region["y_1"]):
+        for x in range(agent_region["x_0"], agent_region["x_1"]):
           if self.grid.is_cell_empty((x, y)):
             seed = random.random()
             
@@ -196,6 +210,15 @@ class ProtestModel(Model):
   def num_jailed(self):
     return len(list(filter(lambda agent: ((type(agent) == Citizen) and (agent.arrested)),  self.schedule.agents)))
 
+  def num_in_state(self, state):
+    return len(list(filter(lambda agent: ((type(agent) == Citizen) and (agent.state == state)),  self.schedule.agents)))
+
+  def average_legitimacy(self):
+    citizen_legitimacy = list(map(lambda a: a.perceived_legitimacy, (list(filter(lambda agent: (type(agent) == Citizen),  self.schedule.agents)))))
+    summed_legitimacy = sum(citizen_legitimacy)
+    count = len(citizen_legitimacy)
+    return summed_legitimacy/float(count)*100
+
   def num_pictures(self):
     media_agents = list(filter(lambda agent: (type(agent) == Media),  self.schedule.agents))
     return sum(map(lambda agent: agent.picture_count, media_agents))
@@ -223,6 +246,7 @@ class ProtestModel(Model):
 
     # Adjust perceived legitimacy
     citizen_agents = list(filter(lambda agent: (type(agent) == Citizen),  self.schedule.agents))
+    
     for citizen in citizen_agents:
       citizen.update_legitimacy()
 
@@ -232,6 +256,7 @@ class ProtestModel(Model):
       media.picture_count = 0
 
   def step(self):
+    self.datacollector.collect(self)
     self.schedule.step()
     self.iterations += 1
     if self.iterations > self.max_iters:

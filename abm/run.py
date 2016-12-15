@@ -1,3 +1,4 @@
-from uct_protests.server import server
+from uct_protests.instantiation import server_instance
 
+server = server_instance()
 server.launch()
