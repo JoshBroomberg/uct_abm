@@ -51,17 +51,5 @@ def model_instance():
   return ProtestModel(**args)
 
 def server_instance():
-  legitimacy = ChartModule([{"Label": "Average legitimacy", 
-                      "Color": "Blue"}],
-                    data_collector_name='datacollector')
-
-  ripeness = ChartModule([{"Label": "Average ripeness", 
-                      "Color": "Red"}],
-                    data_collector_name='datacollector')
-
-  protesting = ChartModule([{"Label": "Protesting", 
-                      "Color": "Black"}],
-                    data_collector_name='datacollector')
-
   canvas_element = CanvasGrid(element_portrayal, args["width"], args["height"], args["width"]*10, args["height"]*10)
-  return ModularServer(ProtestModel, [canvas_element, legitimacy, ripeness, protesting], "UCT Protests", **args)
+  return ModularServer(ProtestModel, [canvas_element], "UCT Protests", **args)
