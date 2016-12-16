@@ -176,6 +176,8 @@ class ProtestModel(Model):
 
   def add_citizen(self, id, x, y):
     seed = random.random()
+
+    # Choose a random subtype and setup parameter brackets and movement vector. 
     if seed < self.hardcore_density:
       agent_type = "hardcore"
       vector = self.default_hardcore_move_vector
@@ -246,6 +248,9 @@ class ProtestModel(Model):
   def num_protesting(self):
     return self.num_in_state("fighting") + self.num_in_state("violent") + self.num_in_state("active")
 
+  # Frustrated means that perceived gain is sufficient
+  # to trigger activation but net risk is preventing
+  # said activation, leaving the agent frustrated,
   def num_frustrated(self):
     return len(list(filter(lambda agent: ((type(agent) == Citizen) and 
       (agent.perceived_gain() > agent.threshold) and 
@@ -290,6 +295,9 @@ class ProtestModel(Model):
     agent.planned_position = None
     self.total_jailed += 1
 
+  # This updates citizen perceived legitimacy based on 
+  # model level variables
+  # and resets pictures taken by media agents. 
   def daily_update(self):
     self.previous_day_jailed_count = self.jailed_count
     self.previous_day_pictures_count = self.pictures_count
@@ -310,7 +318,7 @@ class ProtestModel(Model):
       media.picture_count = 0
 
   def experimental_changes(self):
-    initial_spark_iteration = 5
+    initial_spark_iteration = 10
 
     spark_hardship_increase = 0.25
     spark_legitimacy_decrease = 0.4

@@ -187,7 +187,7 @@ class Citizen(Person):
     self.perceived_legitimacy = perceived_legitimacy
     self.risk_tolerance = risk_tolerance
 
-    self.arrest_delay = self.model.arrest_delay
+    self.arrest_delay = self.model.arrest_delay # The time between a fight with police starting and arrest.
     self.arrested = False
     self.arrested_count = 0
     self.jail_time = 0
@@ -281,7 +281,9 @@ class Citizen(Person):
       else:
         self.planned_state = "quiet"
   
-  # Adjust move vector for context.
+  # Adjust move vector for context. Recall that these adjustments
+  # are two different inherent vectors for each citizen type
+  # meaning the adjusts may not read sensically here. 
   def adjusted_move_vector(self):
     
     # vector order:

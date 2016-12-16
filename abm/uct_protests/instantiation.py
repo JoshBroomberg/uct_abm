@@ -44,7 +44,7 @@ args = {
     {"x_0": 41, "x_1": 49, "y_0": 7, "y_1": 8, "frozen": False},
   ],
   "arrest_delay": 5,
-  "jail_time": 4
+  "jail_time": 3
 }
 
 def model_instance():
