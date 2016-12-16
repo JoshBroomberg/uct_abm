@@ -82,7 +82,6 @@ class Person(Agent):
       raise ValueError("Can only evaluate potential move within percept")
 
     # Calculate distances to objects in percept
-
     cummulative_distances = {
       "violent": 0,
       "active": 0,
@@ -108,7 +107,8 @@ class Person(Agent):
 
     distance_vector = np.array([cummulative_distances[content_type] for content_type in Person.move_vector_order])
 
-    # Calulate penalty based on unit vector derived from adjusted move desire vector
+    # Calulate penalty based on adjusted movement desire vector.
+    # This vector is derived from the inherent version adjusted for context.
     adjusted_move_vector = self.adjusted_move_vector()
     adjusted_move_vector_magnitude = np.linalg.norm(adjusted_move_vector)
     adjusted_move_vector = adjusted_move_vector/adjusted_move_vector_magnitude
@@ -116,6 +116,8 @@ class Person(Agent):
 
     return np.sum(penalty_vector)
 
+  # Finds the best move of those availible given the perceptible penalty for those moves. 
+  # moves to the best move with some falibility.
   def plan_move(self):
     viable_moves = list(filter(lambda co_ord: self.model.grid.is_cell_empty(co_ord), self.percept(radius=2)))
 
@@ -196,6 +198,8 @@ class Citizen(Person):
   def __str__(self):
     return self.citizen_type
 
+  # Specialised citizen methods
+
   def update_legitimacy(self):
     num_jailed = self.model.jailed_count
     num_pictures = self.model.pictures_count
@@ -213,7 +217,7 @@ class Citizen(Person):
     pictures_effect = delta_pictures * self.model.citizen_pictures_sensitivity
     cops_effect = delta_cops * self.model.citizen_cops_sensitivity
 
-    legitimacy_modifier = (jailed_effect + pictures_effect + cops_effect)/100
+    legitimacy_modifier = (jailed_effect + pictures_effect + cops_effect)/1000
 
     # if num jailed, pictures of violence, or cops go down, legitimacy may increase.
     self.perceived_legitimacy = self.perceived_legitimacy - (self.perceived_legitimacy * legitimacy_modifier)
@@ -236,22 +240,21 @@ class Citizen(Person):
     return (1 - (1.0/math.exp(arrest_constant*(float(visible_cops)/visible_active_agents))))
 
   def jail_time_for_arrest(self):
-    return self.model.jail_time * max(1, self.arrested_count)
+    return self.model.jail_time * max(1, self.arrested_count) * self.model.steps_per_day
 
   def net_risk(self, state):
     if state == "active":
       return (self.perceived_risk() * (1-self.risk_tolerance))
     elif state == "violent":
       # doubles with each arrest
-      return (self.perceived_risk() * (1-self.risk_tolerance) * 2)#(self.jail_time_for_arrest()/24) * 2) #self.model.jail_time * (2**(self.arrested_count + 1)))
+      return (self.perceived_risk() * (1-self.risk_tolerance) * (self.jail_time_for_arrest()/self.model.steps_per_day))
     else:
       return 0
 
   def perceived_gain(self):
-    return max(0, self.hardship * (1 - self.perceived_legitimacy))
+    return max(0, self.hardship * max(0, (1 - self.perceived_legitimacy)))
   
-  # Override some generic agent methods:
-
+  # Override generic person methods, using some of the custom methods above.
   def plan_state(self):
     if self.state == "fighting":
       self.arrest_delay = self.arrest_delay - 1
@@ -269,7 +272,7 @@ class Citizen(Person):
     else:
       
       should_go_active = self.perceived_gain() - self.net_risk("active") > self.threshold
-      should_go_violent = self.perceived_gain() - self.net_risk("violent") > (self.threshold)
+      should_go_violent = self.perceived_gain() - self.net_risk("violent") > self.threshold
 
       if should_go_violent:
         self.planned_state = "violent"
@@ -277,11 +280,10 @@ class Citizen(Person):
         self.planned_state = "active"
       else:
         self.planned_state = "quiet"
-  # Way people react to context is dependant on who they are
-  # not their current state
-  # But the features observed are "visible elements" of people
-  # ie, state, not type.
+  
+  # Adjust move vector for context.
   def adjusted_move_vector(self):
+    
     # vector order:
     # [violent, active, quiet, cop, media, flag, obstacle]
 
@@ -292,55 +294,41 @@ class Citizen(Person):
       if self.state == "violent":
         visible_objects = self.model.grid.get_cell_list_contents(self.percept())
         
-        
-        visible_cops = len(list(filter(lambda object: type(object) == Cop, visible_objects)))
-        visible_violent_active_agents = len(list(filter(lambda object: (type(object) == Citizen) and
-          (object.state in ["active", "violent"]), visible_objects)))
-        visible_active_agents = len(list(filter(lambda object: (type(object) == Citizen) and
-          (object.state in ["active"]), visible_objects)))
-        # If cops outnumbered, desire is to
-        # cluster with other violent agents and advance on flag/cops
-        # The notion of outnumbered comes from the 2:1 arrest ratio for cops to arrest
-        # if visible_violent_active_agents >= (0.5 * visible_cops):
+        # If violent, prefer to group with violent, advance on flags and cops.
         inherent_move_vector[0] += 3 #violent
         inherent_move_vector[5] += 5 #flag
         inherent_move_vector[3] += 5 #cops
 
-        # # If agents are outnumbered, avoid cops and reduce interest in flag.
-        # elif visible_violent_active_agents < (0.5 * visible_cops):
-        #   inherent_move_vector[0] += 1 #violent
-        #   inherent_move_vector[3] -= 1 #cops
-        #   inherent_move_vector[5] -= 1 #flag
-
       elif self.state == "active":
+        # If active, prefer to group with active, avoid cops and flags.
         inherent_move_vector[1] += 5 #active
         inherent_move_vector[3] -= 5 #cops
         inherent_move_vector[5] -= 5 #flag
 
       else:
+        # If quiet, prefer to be far from cops and flags.
         inherent_move_vector[3] -= 8 #cops
         inherent_move_vector[5] -= 8 #flag
 
     elif self.citizen_type == "hanger_on":
+     
       # If violent, assume the personality of a hardcore agent,
-      # without additional context modifications
+      # with less significant modifications.
       if self.state == "violent":
         inherent_move_vector = self.model.default_hardcore_move_vector
         inherent_move_vector[5] += 2 #flag
         inherent_move_vector[3] += 2 #cops
 
-      # if active, approach other actives
+      # if active, approach other actives, avoid conflict zone.
       elif self.state == "active":
         inherent_move_vector[1] += 5 #actives
         inherent_move_vector[3] -= 7 #cops
         inherent_move_vector[5] -= 7 #flag
 
-      # If quiet, avoid violent agents
+      # If quiet, avoid conflict zone
       elif self.state == "quiet":
         inherent_move_vector[3] -= 7 #cops
         inherent_move_vector[5] -= 7 #flags
-        # inherent_move_vector[0] -= 3 #violent
-        # inherent_move_vector[1] -= 3 #active
 
     elif self.citizen_type == "observer":
       # If violent, assume the personality of a hardcore agent,
@@ -428,6 +416,8 @@ class Cop(Person):
 
           break
 
+  # Cops don;t have meaningful states, so movement is adjusted based on awareness
+  # of operational context to simplistically represent combat training.
   def adjusted_move_vector(self):
     # vector order:
     # [violent, active, quiet, cop, media, flag, obstacle]

@@ -13,7 +13,7 @@ from utils import ConfigError, co_ords_for_area
 class ProtestModel(Model):
 
   def __init__(self, initial_num_citizens, initial_num_media, hardcore_density, hanger_on_density, observer_density,
-    vision_radius, agent_move_falibility,
+    agent_vision_radius, agent_move_falibility,
     default_hardcore_move_vector, default_hanger_on_move_vector, default_observer_move_vector, default_cop_move_vector, default_media_move_vector,
     citizen_jailed_sensitivity, citizen_pictures_sensitivity, citizen_cops_sensitivity,
     max_days, height, width,
@@ -21,7 +21,8 @@ class ProtestModel(Model):
     arrest_delay, jail_time):
 
     super().__init__()
-    
+    self.steps_per_day = 12
+
     # Population initialisation
     self.initial_num_cops = len(co_ords_for_area(cop_regions))
     self.initial_num_citizens = initial_num_citizens
@@ -33,7 +34,7 @@ class ProtestModel(Model):
     # Agent init
 
     # Agent movement factors
-    self.vision_radius = vision_radius
+    self.agent_vision_radius = agent_vision_radius
     self.agent_move_falibility = agent_move_falibility
 
     # vector order:
@@ -50,8 +51,8 @@ class ProtestModel(Model):
     self.citizen_cops_sensitivity = citizen_cops_sensitivity
 
     # Core model code
-    # Model step represents an hour
-    self.max_iters = max_days * 24
+    # Model step represents 2 hours
+    self.max_iters = max_days * self.steps_per_day
     self.iterations = 0
     self.schedule = RandomActivation(self)
     self.grid = Grid(width, height, torus=False)
@@ -93,6 +94,8 @@ class ProtestModel(Model):
         "Jailed": lambda model: model.num_jailed(),
         "Frustrated": lambda model: model.num_frustrated(),
         "Average legitimacy": lambda model: model.average_legitimacy(),
+        "Average grievance": lambda model: model.average_grievance(),
+        "Average ripeness": lambda model: model.average_grievance()*model.num_in_state("quiet")/float(model.average_risk_aversion()),
         "Cop count": lambda model: model.num_cops(),
         "Num pictures": lambda model: model.num_pictures(),
         "Total fights": lambda model: model.total_fights,
@@ -100,6 +103,7 @@ class ProtestModel(Model):
         "Protest waiting time": lambda model: model.hours_without_protest,
         "Conflict waiting time": lambda model: model.hours_without_conflict,
       },
+
       agent_reporters={
         "perceived_gain": lambda agent: agent.perceived_gain() if isinstance(agent, Citizen) else 0,
         "net_risk_active": lambda agent: agent.net_risk("active") if isinstance(agent, Citizen) else 0,
@@ -155,17 +159,17 @@ class ProtestModel(Model):
   def add_cop(self, id, frozen, x, y):
     vector = self.default_cop_move_vector
     cop = Cop(
-      id,#unique_id,
-      self,#model,
-      (x, y),#position,
-      self.vision_radius,#vision_radius,
-      vector[0],#violent_affinity,
-      vector[1],#active_affinity,
-      vector[2],#quiet_affinity,
-      vector[3],#cop_affinity,
-      vector[4],#media_affinity,
-      vector[5],#flag_affinity,
-      vector[6],#obstacle_affinity,
+      id, #unique_id,
+      self, #model,
+      (x, y), #position,
+      self.agent_vision_radius, #agent_vision_radius,
+      vector[0], #violent_affinity,
+      vector[1], #active_affinity,
+      vector[2], #quiet_affinity,
+      vector[3], #cop_affinity,
+      vector[4], #media_affinity,
+      vector[5], #flag_affinity,
+      vector[6], #obstacle_affinity,
       frozen
     )
     self.add_agent(cop, x, y)
@@ -189,40 +193,40 @@ class ProtestModel(Model):
       risk_upper = 0.32
 
     citizen = Citizen(
-      id,#unique_id,
-      self,#model,
-      (x, y),#position,
-      self.vision_radius,#vision_radius,
-      vector[0],#violent_affinity,
-      vector[1],#active_affinity,
-      vector[2],#quiet_affinity,
-      vector[3],#cop_affinity,
-      vector[4],#media_affinity,
-      vector[5],#flag_affinity,
-      vector[6],#obstacle_affinity,
-      agent_type,#citizen_type,
+      id, #unique_id,
+      self, #model,
+      (x, y), #position,
+      self.agent_vision_radius, #agent_vision_radius,
+      vector[0], #violent_affinity,
+      vector[1], #active_affinity,
+      vector[2], #quiet_affinity,
+      vector[3], #cop_affinity,
+      vector[4], #media_affinity,
+      vector[5], #flag_affinity,
+      vector[6], #obstacle_affinity,
+      agent_type, #citizen_type,
       "quiet", #state: starts are quiet for all
-      random.uniform(0, 0.2),#hardship: uniform distribution between 0 and 1, type independant.
-      random.uniform(0.7, 0.9),#perceived_legitimacy: uniform distribution between 0 and 1, type independant.
+      random.uniform(0, 0.2), #hardship: uniform distribution between 0 and 1, type independant.
+      random.uniform(0.7, 0.9), #perceived_legitimacy: uniform distribution between 0 and 1, type independant.
       random.uniform(risk_lower, risk_upper), #risk_tolerance: type dependant
-      1 - random.uniform(risk_lower, risk_upper)#threshold: type dependant, but reversed from risk profile
+      1 - random.uniform(risk_lower, risk_upper) #threshold: type dependant, but reversed from risk profile
     )
     self.add_agent(citizen, x, y)
 
   def add_media(self, id, x, y):
     vector = self.default_media_move_vector
     media = Media(
-      id,#unique_id,
-      self,#model,
-      (x, y),#position,
-      self.vision_radius,#vision_radius,
-      vector[0],#violent_affinity,
-      vector[1],#active_affinity,
-      vector[2],#quiet_affinity,
-      vector[3],#cop_affinity,
-      vector[4],#media_affinity,
-      vector[5],#flag_affinity,
-      vector[6]#obstacle_affinity,
+      id, #unique_id,
+      self, #model,
+      (x, y), #position,
+      self.agent_vision_radius, #agent_vision_radius,
+      vector[0], #violent_affinity,
+      vector[1], #active_affinity,
+      vector[2], #quiet_affinity,
+      vector[3], #cop_affinity,
+      vector[4], #media_affinity,
+      vector[5], #flag_affinity,
+      vector[6] #obstacle_affinity,
     )
     self.add_agent(media, x, y)
 
@@ -253,6 +257,18 @@ class ProtestModel(Model):
     count = len(citizen_legitimacy)
     return summed_legitimacy/float(count)*100
 
+  def average_grievance(self):
+    citizen_grievance = list(map(lambda a: a.perceived_gain(), (list(filter(lambda agent: (type(agent) == Citizen),  self.schedule.agents)))))
+    summed_grievance = sum(citizen_grievance)
+    count = len(citizen_grievance)
+    return summed_grievance/float(count)*100
+
+  def average_risk_aversion(self):
+    citizen_ra = list(map(lambda a: (1-a.risk_tolerance), (list(filter(lambda agent: (type(agent) == Citizen),  self.schedule.agents)))))
+    summed_ra = sum(citizen_ra)
+    count = len(citizen_ra)
+    return summed_ra/float(count)*100
+
   def num_pictures(self):
     media_agents = list(filter(lambda agent: (type(agent) == Media),  self.schedule.agents))
     return sum(map(lambda agent: agent.picture_count, media_agents))
@@ -282,7 +298,7 @@ class ProtestModel(Model):
     self.pictures_count = self.num_pictures()
     self.cops_count = self.num_cops()
 
-    # Adjust perceived legitimacy
+    # Adjust perceived legitimacy of all agents based on arrests, cops and pictures of fights.
     citizen_agents = list(filter(lambda agent: (type(agent) == Citizen),  self.schedule.agents))
     
     for citizen in citizen_agents:
@@ -294,14 +310,47 @@ class ProtestModel(Model):
       media.picture_count = 0
 
   def experimental_changes(self):
-    if self.iterations == 2:
+    initial_spark_iteration = 5
+
+    spark_hardship_increase = 0.25
+    spark_legitimacy_decrease = 0.4
+
+    protest_response_iteration = 30
+    protest_response = "none"
+    cop_modifier = 150
+
+    if self.iterations == initial_spark_iteration:
       citizen_agents = list(filter(lambda agent: (type(agent) == Citizen),  self.schedule.agents))
     
       for citizen in citizen_agents:
-          citizen.hardship += 0.3
-          citizen.perceived_legitimacy -= 0.5
+          citizen.hardship += spark_hardship_increase
+          citizen.perceived_legitimacy -= spark_legitimacy_decrease
 
+    if self.iterations == protest_response_iteration:
+      if protest_response == "cops":
+        max_id = max(list(map(lambda agent: agent.unique_id, self.schedule.agents)))
+        unique_id = max_id + 1
+        
+        placed = 0
+        while placed < cop_modifier:
+          position = random.choice(co_ords_for_area(self.agent_regions))
+          if self.grid.is_cell_empty(position):
+            self.add_cop(unique_id, False, position[0], position[1])
+            unique_id += 1
+            placed += 1
+
+      elif protest_response == "remove_cops":
+        removed = 0
+        while removed < cop_modifier and self.num_cops() > 0:
+          cop = random.choice(list(filter(lambda agent: (type(agent) == Cop),  self.schedule.agents)))
+          self.schedule.remove(cop)
+          self.grid[cop.position[0]][cop.position[1]] = None
+          removed += 1
+
+  # Advance the model a single iteration.
   def step(self):
+
+    # Collect waiting time information.
     if self.num_protesting() > (0.25 * self.initial_num_citizens):
       self.hours_without_protest = 0
     else:
@@ -312,13 +361,19 @@ class ProtestModel(Model):
     else:
       self.hours_without_conflict +=1
 
+    # Run data collector.
     self.datacollector.collect(self)
+
+    # Step the model
     self.schedule.step()
     self.iterations += 1
     if self.iterations > self.max_iters:
         self.running = False
-    if self.iterations % 24 == 0:
+
+    # Perform updates that occur once per 'day', ie: on a non-iteration basis, 
+    if self.iterations % self.steps_per_day == 0:
       self.daily_update()
 
+    # Check for experimental changes once per iteration.
     self.experimental_changes()
 

@@ -1,5 +1,6 @@
 from mesa.visualization.ModularVisualization import ModularServer
 from mesa.visualization.modules import CanvasGrid
+from mesa.visualization.modules import ChartModule
 
 from .model import ProtestModel
 
@@ -16,17 +17,17 @@ args = {
   "hardcore_density":0.2,
   "hanger_on_density":0.5,
   "observer_density":0.3,
-  "vision_radius": 3,
+  "agent_vision_radius": 3,
   "agent_move_falibility":0.1,
   "default_hardcore_move_vector": [4, 2, 0, 4, 3, 4, -1],
   "default_hanger_on_move_vector": [1, 1, 0, 1, 3, 2, -1],
   "default_observer_move_vector": [-5, -1, 0, -5, 3, 0, -1],
   "default_cop_move_vector": [1, 0, 0, 5, 0, 5, 0],
   "default_media_move_vector": [3, 1, -1, 3, 2, 2, -1],
-  "citizen_jailed_sensitivity":1,
-  "citizen_pictures_sensitivity":0.2,
-  "citizen_cops_sensitivity":0.5,
-  "max_days": 10,
+  "citizen_jailed_sensitivity":5,
+  "citizen_pictures_sensitivity":2,
+  "citizen_cops_sensitivity":10,
+  "max_days": 100,
   "height": 20,
   "width": 90,
   "agent_regions": [{"x_0": 10, "x_1": 80, "y_0": 10, "y_1": 19}],
@@ -43,12 +44,24 @@ args = {
     {"x_0": 41, "x_1": 49, "y_0": 7, "y_1": 8, "frozen": False},
   ],
   "arrest_delay": 5,
-  "jail_time": 48
+  "jail_time": 4
 }
 
 def model_instance():
   return ProtestModel(**args)
 
 def server_instance():
+  legitimacy = ChartModule([{"Label": "Average legitimacy", 
+                      "Color": "Blue"}],
+                    data_collector_name='datacollector')
+
+  ripeness = ChartModule([{"Label": "Average ripeness", 
+                      "Color": "Red"}],
+                    data_collector_name='datacollector')
+
+  protesting = ChartModule([{"Label": "Protesting", 
+                      "Color": "Black"}],
+                    data_collector_name='datacollector')
+
   canvas_element = CanvasGrid(element_portrayal, args["width"], args["height"], args["width"]*10, args["height"]*10)
-  return ModularServer(ProtestModel, [canvas_element], "UCT Protests", **args)
+  return ModularServer(ProtestModel, [canvas_element, legitimacy, ripeness, protesting], "UCT Protests", **args)
